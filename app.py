@@ -38,11 +38,53 @@ SIGN_RULERS = {
 }
 
 ASPECT_ZH = {"conjunction": "合", "sextile": "六合", "square": "刑", "trine": "拱", "opposition": "冲"}
+ASPECT_RULES = [
+    ("conjunction", 0, 8.0),
+    ("sextile", 60, 5.0),
+    ("square", 90, 6.0),
+    ("trine", 120, 6.0),
+    ("opposition", 180, 8.0),
+]
+SIGN_KEYS = ["Ari", "Tau", "Gem", "Can", "Leo", "Vir", "Lib", "Sco", "Sag", "Cap", "Aqu", "Pis"]
+MARX_KEYS = ["Sun", "Moon", "Mercury", "Venus", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto", "True_North_Lunar_Node", "Chiron", "Mean_Lilith"]
 
 ABBR = {
     "Sun": "Su", "Moon": "Mo", "Mercury": "Me", "Venus": "Ve", "Mars": "Ma", "Jupiter": "Ju", "Saturn": "Sa",
     "Uranus": "Ur", "Neptune": "Ne", "Pluto": "Pl", "True_North_Lunar_Node": "NN", "Chiron": "Ch", "Mean_Lilith": "Li",
 }
+
+
+def norm_deg(x: float) -> float:
+    return x % 360.0
+
+
+def angle_mid(a: float, b: float) -> float:
+    a1 = norm_deg(a)
+    b1 = norm_deg(b)
+    diff = (b1 - a1) % 360.0
+    if diff > 180.0:
+        diff -= 360.0
+    return norm_deg(a1 + diff / 2.0)
+
+
+def angle_dist(a: float, b: float) -> float:
+    d = abs(norm_deg(a - b))
+    return min(d, 360.0 - d)
+
+
+def house_of(abs_pos: float, cusps: list[float]) -> int:
+    x = norm_deg(abs_pos)
+    c = [norm_deg(v) for v in cusps]
+    for i in range(12):
+        start = c[i]
+        end = c[(i + 1) % 12]
+        if start <= end:
+            if start <= x < end:
+                return i + 1
+        else:
+            if x >= start or x < end:
+                return i + 1
+    return 12
 
 
 def zh_sign(sign: str) -> str:
@@ -70,6 +112,13 @@ def render_svg(subject: AstrologicalSubject) -> tuple[str, str]:
     chart.makeSVG()
     p = OUT_DIR / f"{subject.name} - Natal Chart.svg"
     return p.name, p.read_text(encoding="utf-8")
+
+
+def write_compact_json(file_name: str, payload: dict) -> tuple[str, bytes]:
+    text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    path = OUT_DIR / file_name
+    path.write_text(text, encoding="utf-8")
+    return str(path), text.encode("utf-8")
 
 
 def data_from_kerykeion(subject: AstrologicalSubject) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
@@ -148,6 +197,122 @@ def data_from_swiss(d: date, t: time, tz: str, lat: float, lon: float) -> tuple[
     return pd.DataFrame(p_rows), pd.DataFrame(hs_rows), pd.DataFrame(asp_rows), compact
 
 
+def build_midpoint_points(base_points: dict, ref_points: dict, ref_houses: list[float]) -> dict:
+    out = {}
+    for key in MARX_KEYS:
+        if key not in base_points or key not in ref_points:
+            continue
+        lon = angle_mid(base_points[key].abs_pos, ref_points[key]["abs_pos"])
+        sign = SIGN_KEYS[int(lon // 30)]
+        pos = lon % 30
+        out[key] = {
+            "name": key,
+            "abs_pos": lon,
+            "sign": sign,
+            "pos": pos,
+            "house": house_of(lon, ref_houses),
+        }
+    return out
+
+
+def build_marx_points_aspects(rows_name: str, points: dict, houses: list[float]) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    p_rows = []
+    for key in MARX_KEYS:
+        if key not in points:
+            continue
+        p = points[key]
+        p_rows.append(
+            {
+                "星体": p["name"],
+                "星座": zh_sign(p["sign"]),
+                "度数": fmt_deg(p["pos"]),
+                "宫位": p["house"],
+                "逆行": "-",
+            }
+        )
+
+    asp_rows = []
+    keys = [k for k in MARX_KEYS if k in points]
+    idx = 1
+    for i in range(len(keys)):
+        for j in range(i + 1, len(keys)):
+            p1 = points[keys[i]]
+            p2 = points[keys[j]]
+            dist = angle_dist(p1["abs_pos"], p2["abs_pos"])
+            for asp_name, exact, orb_max in ASPECT_RULES:
+                orb = abs(dist - exact)
+                if orb <= orb_max:
+                    asp_rows.append(
+                        {
+                            "序": idx,
+                            "星体1": p1["name"],
+                            "相位": ASPECT_ZH.get(asp_name, asp_name),
+                            "星体2": p2["name"],
+                            "方向": "-",
+                            "容许度": fmt_deg(orb),
+                        }
+                    )
+                    idx += 1
+                    break
+
+    compact = {
+        "name": rows_name,
+        "p": [[ABBR.get(r["星体"], r["星体"][:2]), r["星座"], r["度数"], r["宫位"]] for r in p_rows],
+        "a": [[ABBR.get(r["星体1"], r["星体1"][:2]), r["相位"], ABBR.get(r["星体2"], r["星体2"][:2]), r["容许度"]] for r in asp_rows[:24]],
+        "h": [[i + 1, zh_sign(SIGN_KEYS[int(norm_deg(houses[i]) // 30)]), round(norm_deg(houses[i]) % 30, 2)] for i in range(12)],
+    }
+    return pd.DataFrame(p_rows), pd.DataFrame(asp_rows), compact
+
+
+def marx_chart_bundle(
+    a_name: str,
+    b_name: str,
+    a_d: date,
+    a_t: time,
+    a_lat: float,
+    a_lon: float,
+    b_d: date,
+    b_t: time,
+    b_lat: float,
+    b_lon: float,
+) -> dict:
+    a_sc = compute_swiss_chart(a_d, a_t, DEFAULT_TZ, a_lat, a_lon)
+    b_sc = compute_swiss_chart(b_d, b_t, DEFAULT_TZ, b_lat, b_lon)
+
+    comp_houses = [angle_mid(a_sc.houses[i], b_sc.houses[i]) for i in range(12)]
+    comp_points = {}
+    for key in MARX_KEYS:
+        if key not in a_sc.points or key not in b_sc.points:
+            continue
+        lon = angle_mid(a_sc.points[key].abs_pos, b_sc.points[key].abs_pos)
+        comp_points[key] = {"name": key, "abs_pos": lon}
+
+    marx_a_points = build_midpoint_points(a_sc.points, comp_points, comp_houses)
+    marx_b_points = build_midpoint_points(b_sc.points, comp_points, comp_houses)
+    a_p, a_a, a_c = build_marx_points_aspects(f"{a_name}视角", marx_a_points, comp_houses)
+    b_p, b_a, b_c = build_marx_points_aspects(f"{b_name}视角", marx_b_points, comp_houses)
+
+    return {
+        "a_points_df": a_p,
+        "a_aspects_df": a_a,
+        "b_points_df": b_p,
+        "b_aspects_df": b_a,
+        "compact": {
+            "v": 1,
+            "type": "marx-midpoint",
+            "tz": DEFAULT_TZ,
+            "people": {
+                "a": {"name": a_name, "birth": f"{a_d.isoformat()}T{a_t.strftime('%H:%M')}", "loc": [round(a_lat, 4), round(a_lon, 4)]},
+                "b": {"name": b_name, "birth": f"{b_d.isoformat()}T{b_t.strftime('%H:%M')}", "loc": [round(b_lat, 4), round(b_lon, 4)]},
+            },
+            "composite": {
+                "h": [[i + 1, zh_sign(SIGN_KEYS[int(norm_deg(comp_houses[i]) // 30)]), round(norm_deg(comp_houses[i]) % 30, 2)] for i in range(12)]
+            },
+            "marx": {"a_view": a_c, "b_view": b_c},
+        },
+    }
+
+
 def main() -> None:
     st.set_page_config(page_title="西方占星本命盘", layout="wide")
     st.title("西方占星本命盘（双引擎本地版）")
@@ -156,12 +321,18 @@ def main() -> None:
     with st.sidebar:
         engine = st.selectbox("参数计算引擎", ["双引擎(推荐)", "SwissEphemeris", "Kerykeion"], index=0)
         gender = st.selectbox("性别(用于紫微斗数)", ["男", "女"], index=0)
-        name = st.text_input("姓名", value="命主")
-        d = st.date_input("出生日期", value=date(1995, 8, 15), min_value=date(1200, 1, 1), max_value=date(2200, 12, 31))
-        tm = st.time_input("出生时间", value=time(14, 30), step=timedelta(minutes=1))
+        name = st.text_input("A姓名", value="命主A")
+        d = st.date_input("A出生日期", value=date(1995, 8, 15), min_value=date(1200, 1, 1), max_value=date(2200, 12, 31))
+        tm = st.time_input("A出生时间", value=time(14, 30), step=timedelta(minutes=1))
         tz = DEFAULT_TZ
-        lat = st.number_input("纬度", value=float(DEFAULT_LAT), format="%.6f")
-        lon = st.number_input("经度", value=float(DEFAULT_LON), format="%.6f")
+        lat = st.number_input("A纬度", value=float(DEFAULT_LAT), format="%.6f")
+        lon = st.number_input("A经度", value=float(DEFAULT_LON), format="%.6f")
+        st.markdown("---")
+        b_name = st.text_input("B姓名", value="命主B")
+        b_d = st.date_input("B出生日期", value=date(1996, 1, 1), min_value=date(1200, 1, 1), max_value=date(2200, 12, 31))
+        b_tm = st.time_input("B出生时间", value=time(12, 0), step=timedelta(minutes=1))
+        b_lat = st.number_input("B纬度", value=float(DEFAULT_LAT), format="%.6f")
+        b_lon = st.number_input("B经度", value=float(DEFAULT_LON), format="%.6f")
         run = st.button("生成", type="primary")
 
     if not run:
@@ -192,8 +363,20 @@ def main() -> None:
 
     bazi_df, bazi_compact = bazi_payload(d, tm)
     ziwei_df, ziwei_compact, ziwei_year_transform = ziwei_payload(d, tm, gender)
+    marx_bundle = marx_chart_bundle(
+        a_name=name,
+        b_name=b_name,
+        a_d=d,
+        a_t=tm,
+        a_lat=float(lat),
+        a_lon=float(lon),
+        b_d=b_d,
+        b_t=b_tm,
+        b_lat=float(b_lat),
+        b_lon=float(b_lon),
+    )
 
-    tabs = st.tabs(["星盘图", "星体位置", "宫位星座", "行星相位", "AI报告", "八字", "紫微斗数", "总AI包"]) 
+    tabs = st.tabs(["星盘图", "星体位置", "宫位星座", "行星相位", "AI报告", "八字", "紫微斗数", "马克思盘", "总AI包"]) 
 
     with tabs[0]:
         try:
@@ -215,16 +398,20 @@ def main() -> None:
     with tabs[4]:
         meta = {"v": 1, "tz": tz, "loc": [round(float(lat), 4), round(float(lon), 4)], "sys": "Tropical-Placidus", "engine": engine}
         final = {**meta, **report}
-        compact = json.dumps(final, ensure_ascii=False, separators=(",", ":"))
-        st.code(compact, language="json")
-        st.download_button("下载AI报告(JSON)", data=compact.encode("utf-8"), file_name=f"{name}_ai_report.min.json", mime="application/json")
+        western_file = f"{name}_western.min.json"
+        western_path, western_bytes = write_compact_json(western_file, final)
+        st.caption(f"独立JSON: `{western_path}`")
+        st.code(western_bytes.decode("utf-8"), language="json")
+        st.download_button("下载西盘AI包(JSON)", data=western_bytes, file_name=western_file, mime="application/json")
 
     with tabs[5]:
         st.caption("引擎: lunar-python（本地）")
         st.dataframe(bazi_df, use_container_width=True, hide_index=True)
-        bz_text = json.dumps(bazi_compact, ensure_ascii=False, separators=(",", ":"))
-        st.code(bz_text, language="json")
-        st.download_button("下载八字AI包(JSON)", data=bz_text.encode("utf-8"), file_name=f"{name}_bazi.min.json", mime="application/json")
+        bazi_file = f"{name}_bazi.min.json"
+        bazi_path, bazi_bytes = write_compact_json(bazi_file, bazi_compact)
+        st.caption(f"独立JSON: `{bazi_path}`")
+        st.code(bazi_bytes.decode("utf-8"), language="json")
+        st.download_button("下载八字AI包(JSON)", data=bazi_bytes, file_name=bazi_file, mime="application/json")
 
     with tabs[6]:
         st.caption("引擎: iztro.js（本地）")
@@ -232,11 +419,30 @@ def main() -> None:
         st.dataframe(ziwei_df, use_container_width=True, hide_index=True)
         if ziwei_year_transform:
             st.markdown(f"**生年四化**: {ziwei_year_transform}")
-        zw_text = json.dumps(ziwei_compact, ensure_ascii=False, separators=(",", ":"))
-        st.code(zw_text, language="json")
-        st.download_button("下载紫微AI包(JSON)", data=zw_text.encode("utf-8"), file_name=f"{name}_ziwei.min.json", mime="application/json")
+        ziwei_file = f"{name}_ziwei.min.json"
+        ziwei_path, ziwei_bytes = write_compact_json(ziwei_file, ziwei_compact)
+        st.caption(f"独立JSON: `{ziwei_path}`")
+        st.code(ziwei_bytes.decode("utf-8"), language="json")
+        st.download_button("下载紫微AI包(JSON)", data=ziwei_bytes, file_name=ziwei_file, mime="application/json")
 
     with tabs[7]:
+        st.caption("马克思盘（A/B本命 + 组合盘 + 各自与组合盘中点）")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.subheader(f"{name}视角马盘")
+            st.dataframe(marx_bundle["a_points_df"], use_container_width=True, hide_index=True)
+            st.dataframe(marx_bundle["a_aspects_df"], use_container_width=True, hide_index=True)
+        with c2:
+            st.subheader(f"{b_name}视角马盘")
+            st.dataframe(marx_bundle["b_points_df"], use_container_width=True, hide_index=True)
+            st.dataframe(marx_bundle["b_aspects_df"], use_container_width=True, hide_index=True)
+        marx_file = f"{name}_{b_name}_marx.min.json"
+        marx_path, marx_bytes = write_compact_json(marx_file, marx_bundle["compact"])
+        st.caption(f"独立JSON: `{marx_path}`")
+        st.code(marx_bytes.decode("utf-8"), language="json")
+        st.download_button("下载马盘AI包(JSON)", data=marx_bytes, file_name=marx_file, mime="application/json")
+
+    with tabs[8]:
         all_compact = {
             "v": 1,
             "name": name,
@@ -245,10 +451,13 @@ def main() -> None:
             "western": final,
             "bazi": bazi_compact,
             "ziwei": ziwei_compact,
+            "marx": marx_bundle["compact"],
         }
-        all_text = json.dumps(all_compact, ensure_ascii=False, separators=(",", ":"))
-        st.code(all_text, language="json")
-        st.download_button("下载总AI包(JSON)", data=all_text.encode("utf-8"), file_name=f"{name}_all_systems.min.json", mime="application/json")
+        all_file = f"{name}_all_systems.min.json"
+        all_path, all_bytes = write_compact_json(all_file, all_compact)
+        st.caption(f"聚合JSON(可选): `{all_path}`")
+        st.code(all_bytes.decode("utf-8"), language="json")
+        st.download_button("下载总AI包(JSON)", data=all_bytes, file_name=all_file, mime="application/json")
 
 
 if __name__ == "__main__":
