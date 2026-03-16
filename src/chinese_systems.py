@@ -72,7 +72,19 @@ def bazi_payload(d: date, t: time) -> tuple[pd.DataFrame, dict]:
     return pd.DataFrame(rows), compact
 
 
+def _ensure_node_modules():
+    """Auto-install iztro if node_modules is missing (for Streamlit Cloud)."""
+    project_root = Path(__file__).resolve().parents[1]
+    nm = project_root / "tools" / "ziwei_node" / "node_modules"
+    if not nm.exists():
+        subprocess.run(
+            ["npm", "install"],
+            cwd=str(project_root / "tools" / "ziwei_node"),
+            check=True, capture_output=True,
+        )
+
 def ziwei_payload(d: date, t: time, gender: str) -> tuple[pd.DataFrame, dict]:
+    _ensure_node_modules()
     # Use the same lunar conversion chain as Bazi.
     l, ec = _lunar_ctx(d, t)
     lunar_year = l.getYear()
@@ -83,7 +95,6 @@ def ziwei_payload(d: date, t: time, gender: str) -> tuple[pd.DataFrame, dict]:
     lunar_date = f"{lunar_year}-{lunar_month}-{lunar_day}"
 
     project_root = Path(__file__).resolve().parents[1]
-    node_bin = project_root / ".tools" / "node20" / "bin" / "node"
     node_runner = project_root / "tools" / "ziwei_node" / "ziwei_calc.mjs"
     payload = {
         "lunar_date": lunar_date,
@@ -92,7 +103,7 @@ def ziwei_payload(d: date, t: time, gender: str) -> tuple[pd.DataFrame, dict]:
         "is_leap_month": is_leap_month,
     }
     proc = subprocess.run(
-        [str(node_bin), str(node_runner), json.dumps(payload, ensure_ascii=False)],
+        ["node", str(node_runner), json.dumps(payload, ensure_ascii=False)],
         check=True,
         capture_output=True,
         text=True,
