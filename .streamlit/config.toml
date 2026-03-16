@@ -1,3 +1,2 @@
-[server]
-headless = true
-port = 8501
+[general]
+python_version = "3.11"
