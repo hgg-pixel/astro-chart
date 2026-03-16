@@ -1,0 +1,3 @@
+[console_scripts]
+pmjs=pythonmonkey.cli.pmjs:main
+

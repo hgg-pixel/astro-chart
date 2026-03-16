@@ -1,0 +1,5 @@
+streamlit==1.42.0
+kerykeion==5.7.2
+pyswisseph==2.10.3.2
+lunar-python==1.4.8
+urllib3<2
