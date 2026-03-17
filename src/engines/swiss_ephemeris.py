@@ -125,7 +125,11 @@ def compute_swiss_chart(
     points: dict[str, Point] = {}
     speeds: dict[str, float] = {}
     for name, code in PLANETS.items():
-        xx, _ = swe.calc_ut(jd, code)
+        try:
+            xx, _ = swe.calc_ut(jd, code)
+        except swe.Error:
+            # Optional points (e.g. Chiron) may require extra eph files; skip when unavailable.
+            continue
         abs_pos = _norm(xx[0])
         sign, pos = _sign_pos(abs_pos)
         retro = xx[3] < 0
@@ -140,7 +144,7 @@ def compute_swiss_chart(
         speeds[name] = xx[3]
 
     aspects: list[Aspect] = []
-    keys = ["Sun", "Moon", "Mercury", "Venus", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto", "True_North_Lunar_Node", "Chiron"]
+    keys = [k for k in ["Sun", "Moon", "Mercury", "Venus", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto", "True_North_Lunar_Node", "Chiron"] if k in points]
     for i in range(len(keys)):
         for j in range(i + 1, len(keys)):
             p1 = points[keys[i]]

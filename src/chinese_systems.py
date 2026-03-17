@@ -118,6 +118,10 @@ def ziwei_payload(d: date, t: time, gender: str) -> tuple[pd.DataFrame, dict]:
         main = [x.get("name") for x in p.get("majorStars", [])]
         minor = [x.get("name") for x in p.get("minorStars", [])]
         adj = [x.get("name") for x in p.get("adjectiveStars", [])]
+        fly = p.get("flyMutagen", [])
+        fly_text = "；".join(
+            f"{item.get('type')}->{item.get('to')}" for item in fly if item.get("to")
+        )
         palace_rows.append(
             {
                 "宫位": p.get("name"),
@@ -127,6 +131,7 @@ def ziwei_payload(d: date, t: time, gender: str) -> tuple[pd.DataFrame, dict]:
                 "辅星": "、".join(minor + adj),
                 "身宫": "是" if p.get("bodyPalace") else "否",
                 "来因宫": "是" if p.get("originPalace") else "否",
+                "飞星四化": fly_text,
             }
         )
 
@@ -138,6 +143,7 @@ def ziwei_payload(d: date, t: time, gender: str) -> tuple[pd.DataFrame, dict]:
                 p.get("heavenlyStem"),
                 p.get("earthlyBranch"),
                 [x.get("name") for x in p.get("majorStars", [])],
+                p.get("flyMutagen", []),
             ]
         )
 
@@ -171,5 +177,8 @@ def ziwei_payload(d: date, t: time, gender: str) -> tuple[pd.DataFrame, dict]:
         "fec": z.get("fiveElementsClass"),
         "p": compact_palaces,
         "year_transform": year_transform_text,
+        "fly_by_palace": {
+            p.get("name"): p.get("flyMutagen", []) for p in z.get("palaces", [])
+        },
     }
     return pd.DataFrame(palace_rows), compact, year_transform_text

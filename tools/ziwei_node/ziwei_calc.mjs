@@ -17,6 +17,12 @@ function starList(stars) {
 }
 
 function serializePalace(palace) {
+  const flyPlaces = typeof palace.mutagedPlaces === 'function' ? palace.mutagedPlaces() : [];
+  const flyMutagen = ['化禄', '化权', '化科', '化忌'].map((type, idx) => ({
+    type,
+    to: flyPlaces[idx]?.name || null,
+  }));
+
   return {
     name: palace.name,
     heavenlyStem: palace.heavenlyStem,
@@ -31,6 +37,7 @@ function serializePalace(palace) {
     jiangqian12: palace.jiangqian12,
     suiqian12: palace.suiqian12,
     decadal: palace.decadal,
+    flyMutagen,
   };
 }
 
@@ -45,6 +52,8 @@ function main() {
   const gender = payload.gender === '女' ? 'female' : 'male';
 
   const chart = astro.byLunar(payload.lunar_date, timeIndex, gender, Boolean(payload.is_leap_month), 'zh-CN');
+  // Required for palace-level fly-transform helpers.
+  chart.palaces.forEach((p) => p.setAstrolabe(chart));
   const h = chart.horoscope();
   const year = h.yearly || {};
 

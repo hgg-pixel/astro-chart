@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import json
-from datetime import date, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
@@ -70,6 +71,24 @@ def angle_mid(a: float, b: float) -> float:
 def angle_dist(a: float, b: float) -> float:
     d = abs(norm_deg(a - b))
     return min(d, 360.0 - d)
+
+
+def lon_mid(a_lon: float, b_lon: float) -> float:
+    a = norm_deg(a_lon)
+    b = norm_deg(b_lon)
+    m = angle_mid(a, b)
+    return m - 360.0 if m > 180.0 else m
+
+
+def midpoint_datetime(a_d: date, a_t: time, b_d: date, b_t: time, tz: str) -> tuple[date, time]:
+    tzinfo = ZoneInfo(tz)
+    a_local = datetime(a_d.year, a_d.month, a_d.day, a_t.hour, a_t.minute, tzinfo=tzinfo)
+    b_local = datetime(b_d.year, b_d.month, b_d.day, b_t.hour, b_t.minute, tzinfo=tzinfo)
+    a_ts = a_local.astimezone(timezone.utc).timestamp()
+    b_ts = b_local.astimezone(timezone.utc).timestamp()
+    mid_ts = (a_ts + b_ts) / 2.0
+    mid_local = datetime.fromtimestamp(mid_ts, tz=timezone.utc).astimezone(tzinfo)
+    return mid_local.date(), mid_local.time().replace(second=0, microsecond=0)
 
 
 def house_of(abs_pos: float, cusps: list[float]) -> int:
@@ -278,19 +297,16 @@ def marx_chart_bundle(
 ) -> dict:
     a_sc = compute_swiss_chart(a_d, a_t, DEFAULT_TZ, a_lat, a_lon)
     b_sc = compute_swiss_chart(b_d, b_t, DEFAULT_TZ, b_lat, b_lon)
+    mid_lat = (a_lat + b_lat) / 2.0
+    mid_lon = lon_mid(a_lon, b_lon)
+    mid_d, mid_t = midpoint_datetime(a_d, a_t, b_d, b_t, DEFAULT_TZ)
+    st_sc = compute_swiss_chart(mid_d, mid_t, DEFAULT_TZ, mid_lat, mid_lon)
+    st_points = {k: {"name": k, "abs_pos": v.abs_pos} for k, v in st_sc.points.items()}
 
-    comp_houses = [angle_mid(a_sc.houses[i], b_sc.houses[i]) for i in range(12)]
-    comp_points = {}
-    for key in MARX_KEYS:
-        if key not in a_sc.points or key not in b_sc.points:
-            continue
-        lon = angle_mid(a_sc.points[key].abs_pos, b_sc.points[key].abs_pos)
-        comp_points[key] = {"name": key, "abs_pos": lon}
-
-    marx_a_points = build_midpoint_points(a_sc.points, comp_points, comp_houses)
-    marx_b_points = build_midpoint_points(b_sc.points, comp_points, comp_houses)
-    a_p, a_a, a_c = build_marx_points_aspects(f"{a_name}视角", marx_a_points, comp_houses)
-    b_p, b_a, b_c = build_marx_points_aspects(f"{b_name}视角", marx_b_points, comp_houses)
+    marx_a_points = build_midpoint_points(a_sc.points, st_points, st_sc.houses)
+    marx_b_points = build_midpoint_points(b_sc.points, st_points, st_sc.houses)
+    a_p, a_a, a_c = build_marx_points_aspects(f"{a_name}视角", marx_a_points, st_sc.houses)
+    b_p, b_a, b_c = build_marx_points_aspects(f"{b_name}视角", marx_b_points, st_sc.houses)
 
     return {
         "a_points_df": a_p,
@@ -299,14 +315,16 @@ def marx_chart_bundle(
         "b_aspects_df": b_a,
         "compact": {
             "v": 1,
-            "type": "marx-midpoint",
+            "type": "marx-midpoint-spacetime",
             "tz": DEFAULT_TZ,
             "people": {
                 "a": {"name": a_name, "birth": f"{a_d.isoformat()}T{a_t.strftime('%H:%M')}", "loc": [round(a_lat, 4), round(a_lon, 4)]},
                 "b": {"name": b_name, "birth": f"{b_d.isoformat()}T{b_t.strftime('%H:%M')}", "loc": [round(b_lat, 4), round(b_lon, 4)]},
             },
-            "composite": {
-                "h": [[i + 1, zh_sign(SIGN_KEYS[int(norm_deg(comp_houses[i]) // 30)]), round(norm_deg(comp_houses[i]) % 30, 2)] for i in range(12)]
+            "spacetime": {
+                "birth": f"{mid_d.isoformat()}T{mid_t.strftime('%H:%M')}",
+                "loc": [round(mid_lat, 4), round(mid_lon, 4)],
+                "h": [[i + 1, zh_sign(SIGN_KEYS[int(norm_deg(st_sc.houses[i]) // 30)]), round(norm_deg(st_sc.houses[i]) % 30, 2)] for i in range(12)],
             },
             "marx": {"a_view": a_c, "b_view": b_c},
         },
@@ -426,7 +444,7 @@ def main() -> None:
         st.download_button("下载紫微AI包(JSON)", data=ziwei_bytes, file_name=ziwei_file, mime="application/json")
 
     with tabs[7]:
-        st.caption("马克思盘（A/B本命 + 组合盘 + 各自与组合盘中点）")
+        st.caption("马克思盘（A/B本命 + 时空盘 + 各自与时空盘中点）")
         c1, c2 = st.columns(2)
         with c1:
             st.subheader(f"{name}视角马盘")
