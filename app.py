@@ -190,6 +190,8 @@ def data_from_swiss(d: date, t: time, tz: str, lat: float, lon: float) -> tuple[
         planet_house[n] = p.house
         p_rows.append({"星体": n, "星座": zh_sign(p.sign), "度数": fmt_deg(p.pos), "宫位": p.house, "逆行": "是" if p.retro else "否"})
     for n in ["True_North_Lunar_Node", "Chiron", "Mean_Lilith"]:
+        if n not in sc.points:
+            continue
         p = sc.points[n]
         p_rows.append({"星体": n, "星座": zh_sign(p.sign), "度数": fmt_deg(p.pos), "宫位": p.house, "逆行": "是" if p.retro else "否"})
 
@@ -216,7 +218,9 @@ def data_from_swiss(d: date, t: time, tz: str, lat: float, lon: float) -> tuple[
     return pd.DataFrame(p_rows), pd.DataFrame(hs_rows), pd.DataFrame(asp_rows), compact
 
 
-def build_midpoint_points(base_points: dict, ref_points: dict, ref_houses: list[float]) -> dict:
+# DEPRECATED: This function used incorrect angular midpoint algorithm.
+# Marks chart should use midpoint of DATE/TIME/LOCATION, not planet positions.
+# def build_midpoint_points(base_points: dict, ref_points: dict, ref_houses: list[float]) -> dict:
     out = {}
     for key in MARX_KEYS:
         if key not in base_points or key not in ref_points:
@@ -234,7 +238,8 @@ def build_midpoint_points(base_points: dict, ref_points: dict, ref_houses: list[
     return out
 
 
-def build_marx_points_aspects(rows_name: str, points: dict, houses: list[float]) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+# DEPRECATED: See build_midpoint_points above.
+# def build_marx_points_aspects(rows_name: str, points: dict, houses: list[float]) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     p_rows = []
     for key in MARX_KEYS:
         if key not in points:
@@ -295,18 +300,25 @@ def marx_chart_bundle(
     b_lat: float,
     b_lon: float,
 ) -> dict:
-    a_sc = compute_swiss_chart(a_d, a_t, DEFAULT_TZ, a_lat, a_lon)
-    b_sc = compute_swiss_chart(b_d, b_t, DEFAULT_TZ, b_lat, b_lon)
+    # Step 1: Compute Davison spacetime midpoint
     mid_lat = (a_lat + b_lat) / 2.0
     mid_lon = lon_mid(a_lon, b_lon)
     mid_d, mid_t = midpoint_datetime(a_d, a_t, b_d, b_t, DEFAULT_TZ)
     st_sc = compute_swiss_chart(mid_d, mid_t, DEFAULT_TZ, mid_lat, mid_lon)
-    st_points = {k: {"name": k, "abs_pos": v.abs_pos} for k, v in st_sc.points.items()}
 
-    marx_a_points = build_midpoint_points(a_sc.points, st_points, st_sc.houses)
-    marx_b_points = build_midpoint_points(b_sc.points, st_points, st_sc.houses)
-    a_p, a_a, a_c = build_marx_points_aspects(f"{a_name}视角", marx_a_points, st_sc.houses)
-    b_p, b_a, b_c = build_marx_points_aspects(f"{b_name}视角", marx_b_points, st_sc.houses)
+    # Step 2: Compute A's Marks chart = midpoint(A natal, Davison) for DATE/TIME/LOCATION
+    marx_a_d, marx_a_t = midpoint_datetime(a_d, a_t, mid_d, mid_t, DEFAULT_TZ)
+    marx_a_lat = (a_lat + mid_lat) / 2.0
+    marx_a_lon = lon_mid(a_lon, mid_lon)
+
+    # Step 3: Compute B's Marks chart = midpoint(B natal, Davison) for DATE/TIME/LOCATION
+    marx_b_d, marx_b_t = midpoint_datetime(b_d, b_t, mid_d, mid_t, DEFAULT_TZ)
+    marx_b_lat = (b_lat + mid_lat) / 2.0
+    marx_b_lon = lon_mid(b_lon, mid_lon)
+
+    # Extract data from swiss charts (reuse existing function)
+    a_p, a_h, a_a, a_c = data_from_swiss(marx_a_d, marx_a_t, DEFAULT_TZ, marx_a_lat, marx_a_lon)
+    b_p, b_h, b_a, b_c = data_from_swiss(marx_b_d, marx_b_t, DEFAULT_TZ, marx_b_lat, marx_b_lon)
 
     return {
         "a_points_df": a_p,
@@ -315,7 +327,7 @@ def marx_chart_bundle(
         "b_aspects_df": b_a,
         "compact": {
             "v": 1,
-            "type": "marx-midpoint-spacetime",
+            "type": "marx-davison-derived",
             "tz": DEFAULT_TZ,
             "people": {
                 "a": {"name": a_name, "birth": f"{a_d.isoformat()}T{a_t.strftime('%H:%M')}", "loc": [round(a_lat, 4), round(a_lon, 4)]},
@@ -326,7 +338,20 @@ def marx_chart_bundle(
                 "loc": [round(mid_lat, 4), round(mid_lon, 4)],
                 "h": [[i + 1, zh_sign(SIGN_KEYS[int(norm_deg(st_sc.houses[i]) // 30)]), round(norm_deg(st_sc.houses[i]) % 30, 2)] for i in range(12)],
             },
-            "marx": {"a_view": a_c, "b_view": b_c},
+            "marx": {
+                "a_view": {
+                    "name": f"{a_name}视角",
+                    "birth": f"{marx_a_d.isoformat()}T{marx_a_t.strftime('%H:%M')}",
+                    "loc": [round(marx_a_lat, 4), round(marx_a_lon, 4)],
+                    **a_c,
+                },
+                "b_view": {
+                    "name": f"{b_name}视角",
+                    "birth": f"{marx_b_d.isoformat()}T{marx_b_t.strftime('%H:%M')}",
+                    "loc": [round(marx_b_lat, 4), round(marx_b_lon, 4)],
+                    **b_c,
+                },
+            },
         },
     }
 
