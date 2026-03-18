@@ -17,6 +17,9 @@ from src.engines.swiss_ephemeris import compute_swiss_chart
 OUT_DIR = Path(__file__).parent / "output"
 OUT_DIR.mkdir(exist_ok=True)
 
+PROFILES_DIR = OUT_DIR / "profiles"
+PROFILES_DIR.mkdir(exist_ok=True)
+
 DEFAULT_TZ = "Asia/Shanghai"
 DEFAULT_LAT = 31.2304
 DEFAULT_LON = 121.4737
@@ -358,40 +361,185 @@ def marx_chart_bundle(
     }
 
 
+def init_session_state():
+    """初始化session state中的输入值"""
+    if "a_name" not in st.session_state:
+        st.session_state.a_name = "命主A"
+    if "a_date" not in st.session_state:
+        st.session_state.a_date = date(1995, 8, 15)
+    if "a_time" not in st.session_state:
+        st.session_state.a_time = time(14, 30)
+    if "a_lat" not in st.session_state:
+        st.session_state.a_lat = DEFAULT_LAT
+    if "a_lon" not in st.session_state:
+        st.session_state.a_lon = DEFAULT_LON
+    if "b_name" not in st.session_state:
+        st.session_state.b_name = "命主B"
+    if "b_date" not in st.session_state:
+        st.session_state.b_date = date(1996, 1, 1)
+    if "b_time" not in st.session_state:
+        st.session_state.b_time = time(12, 0)
+    if "b_lat" not in st.session_state:
+        st.session_state.b_lat = DEFAULT_LAT
+    if "b_lon" not in st.session_state:
+        st.session_state.b_lon = DEFAULT_LON
+
+
+def swap_ab():
+    """交换A和B的所有信息"""
+    st.session_state.a_name, st.session_state.b_name = st.session_state.b_name, st.session_state.a_name
+    st.session_state.a_date, st.session_state.b_date = st.session_state.b_date, st.session_state.a_date
+    st.session_state.a_time, st.session_state.b_time = st.session_state.b_time, st.session_state.a_time
+    st.session_state.a_lat, st.session_state.b_lat = st.session_state.b_lat, st.session_state.a_lat
+    st.session_state.a_lon, st.session_state.b_lon = st.session_state.b_lon, st.session_state.a_lon
+
+
+def save_profile(profile_name: str) -> bool:
+    """保存档案到JSON文件"""
+    if not profile_name or not profile_name.strip():
+        return False
+    profile_data = {
+        "a": {
+            "name": st.session_state.a_name,
+            "date": st.session_state.a_date.isoformat(),
+            "time": st.session_state.a_time.isoformat(),
+            "lat": st.session_state.a_lat,
+            "lon": st.session_state.a_lon,
+        },
+        "b": {
+            "name": st.session_state.b_name,
+            "date": st.session_state.b_date.isoformat(),
+            "time": st.session_state.b_time.isoformat(),
+            "lat": st.session_state.b_lat,
+            "lon": st.session_state.b_lon,
+        },
+    }
+    file_path = PROFILES_DIR / f"{profile_name}.json"
+    file_path.write_text(json.dumps(profile_data, ensure_ascii=False, indent=2), encoding="utf-8")
+    return True
+
+
+def load_profile(profile_name: str) -> bool:
+    """从JSON文件加载档案"""
+    file_path = PROFILES_DIR / f"{profile_name}.json"
+    if not file_path.exists():
+        return False
+    profile_data = json.loads(file_path.read_text(encoding="utf-8"))
+    st.session_state.a_name = profile_data["a"]["name"]
+    st.session_state.a_date = date.fromisoformat(profile_data["a"]["date"])
+    st.session_state.a_time = time.fromisoformat(profile_data["a"]["time"])
+    st.session_state.a_lat = profile_data["a"]["lat"]
+    st.session_state.a_lon = profile_data["a"]["lon"]
+    st.session_state.b_name = profile_data["b"]["name"]
+    st.session_state.b_date = date.fromisoformat(profile_data["b"]["date"])
+    st.session_state.b_time = time.fromisoformat(profile_data["b"]["time"])
+    st.session_state.b_lat = profile_data["b"]["lat"]
+    st.session_state.b_lon = profile_data["b"]["lon"]
+    return True
+
+
+def delete_profile(profile_name: str) -> bool:
+    """删除档案文件"""
+    file_path = PROFILES_DIR / f"{profile_name}.json"
+    if file_path.exists():
+        file_path.unlink()
+        return True
+    return False
+
+
+def get_profile_list() -> list[str]:
+    """获取所有已保存的档案名（不含.json扩展名）"""
+    if not PROFILES_DIR.exists():
+        return []
+    return sorted([f.stem for f in PROFILES_DIR.glob("*.json")])
+
+
 def main() -> None:
     st.set_page_config(page_title="西方占星本命盘", layout="wide")
     st.title("西方占星本命盘（双引擎本地版）")
     st.caption("参数页对标：星体位置 / 宫位星座 / 行星相位。AI报告采用极简JSON，低token消费。")
 
+    init_session_state()
+
     with st.sidebar:
         engine = st.selectbox("参数计算引擎", ["双引擎(推荐)", "SwissEphemeris", "Kerykeion"], index=0)
         gender = st.selectbox("性别(用于紫微斗数)", ["男", "女"], index=0)
-        name = st.text_input("A姓名", value="命主A")
-        d = st.date_input("A出生日期", value=date(1995, 8, 15), min_value=date(1200, 1, 1), max_value=date(2200, 12, 31))
-        tm = st.time_input("A出生时间", value=time(14, 30), step=timedelta(minutes=1))
-        tz = DEFAULT_TZ
-        lat = st.number_input("A纬度", value=float(DEFAULT_LAT), format="%.6f")
-        lon = st.number_input("A经度", value=float(DEFAULT_LON), format="%.6f")
+
+        st.markdown("**命主 A**")
+        st.session_state.a_name = st.text_input("A姓名", value=st.session_state.a_name, key="input_a_name")
+        st.session_state.a_date = st.date_input("A出生日期", value=st.session_state.a_date, min_value=date(1200, 1, 1), max_value=date(2200, 12, 31), key="input_a_date")
+        st.session_state.a_time = st.time_input("A出生时间", value=st.session_state.a_time, step=timedelta(minutes=1), key="input_a_time")
+        st.session_state.a_lat = st.number_input("A纬度", value=st.session_state.a_lat, format="%.6f", key="input_a_lat")
+        st.session_state.a_lon = st.number_input("A经度", value=st.session_state.a_lon, format="%.6f", key="input_a_lon")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            swap_clicked = st.button("↔ 交换A/B", use_container_width=True)
+        with col2:
+            pass
+
+        if swap_clicked:
+            swap_ab()
+            st.rerun()
+
         st.markdown("---")
-        b_name = st.text_input("B姓名", value="命主B")
-        b_d = st.date_input("B出生日期", value=date(1996, 1, 1), min_value=date(1200, 1, 1), max_value=date(2200, 12, 31))
-        b_tm = st.time_input("B出生时间", value=time(12, 0), step=timedelta(minutes=1))
-        b_lat = st.number_input("B纬度", value=float(DEFAULT_LAT), format="%.6f")
-        b_lon = st.number_input("B经度", value=float(DEFAULT_LON), format="%.6f")
-        run = st.button("生成", type="primary")
+        st.markdown("**命主 B**")
+        st.session_state.b_name = st.text_input("B姓名", value=st.session_state.b_name, key="input_b_name")
+        st.session_state.b_date = st.date_input("B出生日期", value=st.session_state.b_date, min_value=date(1200, 1, 1), max_value=date(2200, 12, 31), key="input_b_date")
+        st.session_state.b_time = st.time_input("B出生时间", value=st.session_state.b_time, step=timedelta(minutes=1), key="input_b_time")
+        st.session_state.b_lat = st.number_input("B纬度", value=st.session_state.b_lat, format="%.6f", key="input_b_lat")
+        st.session_state.b_lon = st.number_input("B经度", value=st.session_state.b_lon, format="%.6f", key="input_b_lon")
+
+        st.markdown("---")
+
+        with st.expander("📁 档案管理"):
+            tab1, tab2, tab3 = st.tabs(["保存", "加载", "删除"])
+
+            with tab1:
+                new_profile_name = st.text_input("输入档案名", placeholder="例：张三-李四")
+                if st.button("💾 保存档案", use_container_width=True):
+                    if save_profile(new_profile_name):
+                        st.success(f"档案 '{new_profile_name}' 已保存")
+                    else:
+                        st.error("档案名不能为空")
+
+            with tab2:
+                profiles = get_profile_list()
+                if profiles:
+                    selected_profile = st.selectbox("选择档案", profiles, key="load_profile_select")
+                    if st.button("📂 加载档案", use_container_width=True):
+                        if load_profile(selected_profile):
+                            st.success(f"档案 '{selected_profile}' 已加载")
+                            st.rerun()
+                else:
+                    st.info("暂无已保存的档案")
+
+            with tab3:
+                profiles = get_profile_list()
+                if profiles:
+                    delete_profile_name = st.selectbox("选择档案", profiles, key="delete_profile_select")
+                    if st.button("🗑️ 删除档案", use_container_width=True):
+                        if delete_profile(delete_profile_name):
+                            st.success(f"档案 '{delete_profile_name}' 已删除")
+                            st.rerun()
+                else:
+                    st.info("暂无已保存的档案")
+
+        st.markdown("---")
+        run = st.button("生成", type="primary", use_container_width=True)
 
     if not run:
         st.info("请在左侧填写参数并点击生成")
         return
 
     try:
-        ks = k_subject(name, d, tm, tz, float(lat), float(lon))
+        ks = k_subject(st.session_state.a_name, st.session_state.a_date, st.session_state.a_time, DEFAULT_TZ, float(st.session_state.a_lat), float(st.session_state.a_lon))
     except Exception as exc:
         st.error(f"计算失败: {exc}")
         return
 
     k_p, k_h, k_a, k_r = data_from_kerykeion(ks)
-    s_p, s_h, s_a, s_r = data_from_swiss(d, tm, tz, float(lat), float(lon))
+    s_p, s_h, s_a, s_r = data_from_swiss(st.session_state.a_date, st.session_state.a_time, DEFAULT_TZ, float(st.session_state.a_lat), float(st.session_state.a_lon))
 
     if engine == "Kerykeion":
         p_df, h_df, a_df, report = k_p, k_h, k_a, k_r
@@ -406,19 +554,19 @@ def main() -> None:
         if diffs:
             st.warning(f"双引擎校验提示：以下星体星座不一致 {diffs}，已默认采用 SwissEphemeris 输出。")
 
-    bazi_df, bazi_compact = bazi_payload(d, tm)
-    ziwei_df, ziwei_compact, ziwei_year_transform = ziwei_payload(d, tm, gender)
+    bazi_df, bazi_compact = bazi_payload(st.session_state.a_date, st.session_state.a_time)
+    ziwei_df, ziwei_compact, ziwei_year_transform = ziwei_payload(st.session_state.a_date, st.session_state.a_time, gender)
     marx_bundle = marx_chart_bundle(
-        a_name=name,
-        b_name=b_name,
-        a_d=d,
-        a_t=tm,
-        a_lat=float(lat),
-        a_lon=float(lon),
-        b_d=b_d,
-        b_t=b_tm,
-        b_lat=float(b_lat),
-        b_lon=float(b_lon),
+        a_name=st.session_state.a_name,
+        b_name=st.session_state.b_name,
+        a_d=st.session_state.a_date,
+        a_t=st.session_state.a_time,
+        a_lat=float(st.session_state.a_lat),
+        a_lon=float(st.session_state.a_lon),
+        b_d=st.session_state.b_date,
+        b_t=st.session_state.b_time,
+        b_lat=float(st.session_state.b_lat),
+        b_lon=float(st.session_state.b_lon),
     )
 
     tabs = st.tabs(["星盘图", "星体位置", "宫位星座", "行星相位", "AI报告", "八字", "紫微斗数", "马克思盘", "总AI包"]) 
@@ -441,9 +589,9 @@ def main() -> None:
         st.dataframe(a_df, use_container_width=True, hide_index=True)
 
     with tabs[4]:
-        meta = {"v": 1, "tz": tz, "loc": [round(float(lat), 4), round(float(lon), 4)], "sys": "Tropical-Placidus", "engine": engine}
+        meta = {"v": 1, "tz": DEFAULT_TZ, "loc": [round(float(st.session_state.a_lat), 4), round(float(st.session_state.a_lon), 4)], "sys": "Tropical-Placidus", "engine": engine}
         final = {**meta, **report}
-        western_file = f"{name}_western.min.json"
+        western_file = f"{st.session_state.a_name}_western.min.json"
         western_path, western_bytes = write_compact_json(western_file, final)
         st.caption(f"独立JSON: `{western_path}`")
         st.code(western_bytes.decode("utf-8"), language="json")
@@ -452,7 +600,7 @@ def main() -> None:
     with tabs[5]:
         st.caption("引擎: lunar-python（本地）")
         st.dataframe(bazi_df, use_container_width=True, hide_index=True)
-        bazi_file = f"{name}_bazi.min.json"
+        bazi_file = f"{st.session_state.a_name}_bazi.min.json"
         bazi_path, bazi_bytes = write_compact_json(bazi_file, bazi_compact)
         st.caption(f"独立JSON: `{bazi_path}`")
         st.code(bazi_bytes.decode("utf-8"), language="json")
@@ -464,7 +612,7 @@ def main() -> None:
         st.dataframe(ziwei_df, use_container_width=True, hide_index=True)
         if ziwei_year_transform:
             st.markdown(f"**生年四化**: {ziwei_year_transform}")
-        ziwei_file = f"{name}_ziwei.min.json"
+        ziwei_file = f"{st.session_state.a_name}_ziwei.min.json"
         ziwei_path, ziwei_bytes = write_compact_json(ziwei_file, ziwei_compact)
         st.caption(f"独立JSON: `{ziwei_path}`")
         st.code(ziwei_bytes.decode("utf-8"), language="json")
@@ -474,14 +622,14 @@ def main() -> None:
         st.caption("马克思盘（A/B本命 + 时空盘 + 各自与时空盘中点）")
         c1, c2 = st.columns(2)
         with c1:
-            st.subheader(f"{name}视角马盘")
+            st.subheader(f"{st.session_state.a_name}视角马盘")
             st.dataframe(marx_bundle["a_points_df"], use_container_width=True, hide_index=True)
             st.dataframe(marx_bundle["a_aspects_df"], use_container_width=True, hide_index=True)
         with c2:
-            st.subheader(f"{b_name}视角马盘")
+            st.subheader(f"{st.session_state.b_name}视角马盘")
             st.dataframe(marx_bundle["b_points_df"], use_container_width=True, hide_index=True)
             st.dataframe(marx_bundle["b_aspects_df"], use_container_width=True, hide_index=True)
-        marx_file = f"{name}_{b_name}_marx.min.json"
+        marx_file = f"{st.session_state.a_name}_{st.session_state.b_name}_marx.min.json"
         marx_path, marx_bytes = write_compact_json(marx_file, marx_bundle["compact"])
         st.caption(f"独立JSON: `{marx_path}`")
         st.code(marx_bytes.decode("utf-8"), language="json")
@@ -490,15 +638,15 @@ def main() -> None:
     with tabs[8]:
         all_compact = {
             "v": 1,
-            "name": name,
-            "tz": tz,
-            "loc": [round(float(lat), 4), round(float(lon), 4)],
+            "name": st.session_state.a_name,
+            "tz": DEFAULT_TZ,
+            "loc": [round(float(st.session_state.a_lat), 4), round(float(st.session_state.a_lon), 4)],
             "western": final,
             "bazi": bazi_compact,
             "ziwei": ziwei_compact,
             "marx": marx_bundle["compact"],
         }
-        all_file = f"{name}_all_systems.min.json"
+        all_file = f"{st.session_state.a_name}_all_systems.min.json"
         all_path, all_bytes = write_compact_json(all_file, all_compact)
         st.caption(f"聚合JSON(可选): `{all_path}`")
         st.code(all_bytes.decode("utf-8"), language="json")
