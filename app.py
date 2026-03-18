@@ -304,6 +304,8 @@ def marx_chart_bundle(
     mid_lat = (a_lat + b_lat) / 2.0
     mid_lon = lon_mid(a_lon, b_lon)
     mid_d, mid_t = midpoint_datetime(a_d, a_t, b_d, b_t, DEFAULT_TZ)
+    # Clamp latitude to valid range for house calculation
+    mid_lat = max(-89.99, min(89.99, mid_lat))
     st_sc = compute_swiss_chart(mid_d, mid_t, DEFAULT_TZ, mid_lat, mid_lon)
 
     # Step 2: Compute A's Marks chart = midpoint(A natal, Davison) for DATE/TIME/LOCATION
