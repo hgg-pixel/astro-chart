@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
-
+import requests
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
@@ -17,8 +18,6 @@ from src.engines.swiss_ephemeris import compute_swiss_chart
 OUT_DIR = Path(__file__).parent / "output"
 OUT_DIR.mkdir(exist_ok=True)
 
-PROFILES_DIR = OUT_DIR / "profiles"
-PROFILES_DIR.mkdir(exist_ok=True)
 
 DEFAULT_TZ = "Asia/Shanghai"
 DEFAULT_LAT = 31.2304
@@ -394,9 +393,44 @@ def swap_ab():
     st.session_state.a_lon, st.session_state.b_lon = st.session_state.b_lon, st.session_state.a_lon
 
 
+# ── Gist-based profile storage ──────────────────────────────────
+
+_PROFILE_PREFIX = "profile_"
+
+def _gist_config() -> tuple[str | None, str | None]:
+    try:
+        token = st.secrets.get("GIST_TOKEN") or os.getenv("GIST_TOKEN")
+        gist_id = st.secrets.get("GIST_ID") or os.getenv("GIST_ID")
+    except Exception:
+        token = os.getenv("GIST_TOKEN")
+        gist_id = os.getenv("GIST_ID")
+    return token, gist_id
+
+def _gist_headers(token: str) -> dict:
+    return {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+
+@st.cache_data(ttl=30)
+def _fetch_gist_files(gist_id: str, _token: str) -> dict[str, str]:
+    resp = requests.get(f"https://api.github.com/gists/{gist_id}", headers=_gist_headers(_token), timeout=10)
+    resp.raise_for_status()
+    return {name: f["content"] for name, f in resp.json().get("files", {}).items()}
+
+def _patch_gist(gist_id: str, token: str, files: dict) -> bool:
+    payload = {"files": {}}
+    for name, content in files.items():
+        payload["files"][name] = {"content": content} if content else {"content": ""}
+    resp = requests.patch(f"https://api.github.com/gists/{gist_id}", headers=_gist_headers(token), json=payload, timeout=10)
+    resp.raise_for_status()
+    _fetch_gist_files.clear()
+    return True
+
+
 def save_profile(profile_name: str) -> bool:
-    """保存档案到JSON文件"""
     if not profile_name or not profile_name.strip():
+        return False
+    token, gist_id = _gist_config()
+    if not token or not gist_id:
+        st.error("未配置 GIST_TOKEN / GIST_ID")
         return False
     profile_data = {
         "a": {
@@ -414,17 +448,19 @@ def save_profile(profile_name: str) -> bool:
             "lon": st.session_state.b_lon,
         },
     }
-    file_path = PROFILES_DIR / f"{profile_name}.json"
-    file_path.write_text(json.dumps(profile_data, ensure_ascii=False, indent=2), encoding="utf-8")
-    return True
+    filename = f"{_PROFILE_PREFIX}{profile_name.strip()}.json"
+    return _patch_gist(gist_id, token, {filename: json.dumps(profile_data, ensure_ascii=False, indent=2)})
 
 
 def load_profile(profile_name: str) -> bool:
-    """从JSON文件加载档案"""
-    file_path = PROFILES_DIR / f"{profile_name}.json"
-    if not file_path.exists():
+    token, gist_id = _gist_config()
+    if not token or not gist_id:
         return False
-    profile_data = json.loads(file_path.read_text(encoding="utf-8"))
+    files = _fetch_gist_files(gist_id, token)
+    filename = f"{_PROFILE_PREFIX}{profile_name}.json"
+    if filename not in files:
+        return False
+    profile_data = json.loads(files[filename])
     st.session_state.a_name = profile_data["a"]["name"]
     st.session_state.a_date = date.fromisoformat(profile_data["a"]["date"])
     st.session_state.a_time = time.fromisoformat(profile_data["a"]["time"])
@@ -439,19 +475,29 @@ def load_profile(profile_name: str) -> bool:
 
 
 def delete_profile(profile_name: str) -> bool:
-    """删除档案文件"""
-    file_path = PROFILES_DIR / f"{profile_name}.json"
-    if file_path.exists():
-        file_path.unlink()
-        return True
-    return False
+    token, gist_id = _gist_config()
+    if not token or not gist_id:
+        return False
+    filename = f"{_PROFILE_PREFIX}{profile_name}.json"
+    try:
+        return _patch_gist(gist_id, token, {filename: ""})
+    except Exception:
+        return False
 
 
 def get_profile_list() -> list[str]:
-    """获取所有已保存的档案名（不含.json扩展名）"""
-    if not PROFILES_DIR.exists():
+    token, gist_id = _gist_config()
+    if not token or not gist_id:
         return []
-    return sorted([f.stem for f in PROFILES_DIR.glob("*.json")])
+    try:
+        files = _fetch_gist_files(gist_id, token)
+        return sorted([
+            name.removeprefix(_PROFILE_PREFIX).removesuffix(".json")
+            for name in files
+            if name.startswith(_PROFILE_PREFIX) and name.endswith(".json")
+        ])
+    except Exception:
+        return []
 
 
 def main() -> None:
