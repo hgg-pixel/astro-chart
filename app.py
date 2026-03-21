@@ -391,6 +391,12 @@ def swap_ab():
     st.session_state.a_time, st.session_state.b_time = st.session_state.b_time, st.session_state.a_time
     st.session_state.a_lat, st.session_state.b_lat = st.session_state.b_lat, st.session_state.a_lat
     st.session_state.a_lon, st.session_state.b_lon = st.session_state.b_lon, st.session_state.a_lon
+    # Clear widget keys so rerun picks up swapped values
+    for prefix in ("a", "b"):
+        for field in ("name", "date", "time", "lat", "lon"):
+            widget_key = f"input_{prefix}_{field}"
+            if widget_key in st.session_state:
+                del st.session_state[widget_key]
 
 
 # ── Gist-based profile storage ──────────────────────────────────
@@ -471,6 +477,13 @@ def load_profile(profile_name: str) -> bool:
     st.session_state.b_time = time.fromisoformat(profile_data["b"]["time"])
     st.session_state.b_lat = profile_data["b"]["lat"]
     st.session_state.b_lon = profile_data["b"]["lon"]
+    # Sync widget keys so rerun picks up new values
+    for prefix in ("a", "b"):
+        for field in ("name", "date", "time", "lat", "lon"):
+            widget_key = f"input_{prefix}_{field}"
+            state_key = f"{prefix}_{field}"
+            if widget_key in st.session_state:
+                del st.session_state[widget_key]
     return True
 
 
