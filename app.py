@@ -363,25 +363,25 @@ def marx_chart_bundle(
 def init_session_state():
     """初始化session state中的输入值"""
     if "a_name" not in st.session_state:
-        st.session_state.a_name = "命主A"
+        st.session_state.a_name = "黛哥"
     if "a_date" not in st.session_state:
-        st.session_state.a_date = date(1995, 8, 15)
+        st.session_state.a_date = date(1992, 6, 27)
     if "a_time" not in st.session_state:
-        st.session_state.a_time = time(14, 30)
+        st.session_state.a_time = time(21, 30)
     if "a_lat" not in st.session_state:
-        st.session_state.a_lat = DEFAULT_LAT
+        st.session_state.a_lat = 31.3
     if "a_lon" not in st.session_state:
-        st.session_state.a_lon = DEFAULT_LON
+        st.session_state.a_lon = 120.63
     if "b_name" not in st.session_state:
-        st.session_state.b_name = "命主B"
+        st.session_state.b_name = "妈咪"
     if "b_date" not in st.session_state:
-        st.session_state.b_date = date(1996, 1, 1)
+        st.session_state.b_date = date(1993, 1, 12)
     if "b_time" not in st.session_state:
-        st.session_state.b_time = time(12, 0)
+        st.session_state.b_time = time(12, 20)
     if "b_lat" not in st.session_state:
-        st.session_state.b_lat = DEFAULT_LAT
+        st.session_state.b_lat = 34.73
     if "b_lon" not in st.session_state:
-        st.session_state.b_lon = DEFAULT_LON
+        st.session_state.b_lon = 105.33
 
 
 def swap_ab():
