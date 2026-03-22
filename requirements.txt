@@ -4,3 +4,4 @@ pyswisseph==2.10.3.2
 lunar-python==1.4.8
 urllib3<2
 requests>=2.28.0
+beautifulsoup4>=4.12.0
