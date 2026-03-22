@@ -387,17 +387,22 @@ def init_session_state():
 
 def swap_ab():
     """交换A和B的所有信息"""
+    # When on_click fires, widget keys (input_a_*, input_b_*) hold current form values.
+    # We must swap THOSE, not the a_*/b_* keys (which widgets overwrite).
+    for field in ("name", "date", "time", "lat", "lon"):
+        ka = f"input_a_{field}"
+        kb = f"input_b_{field}"
+        va = st.session_state.get(ka)
+        vb = st.session_state.get(kb)
+        if va is not None and vb is not None:
+            st.session_state[ka] = vb
+            st.session_state[kb] = va
+    # Also sync the canonical keys
     st.session_state.a_name, st.session_state.b_name = st.session_state.b_name, st.session_state.a_name
     st.session_state.a_date, st.session_state.b_date = st.session_state.b_date, st.session_state.a_date
     st.session_state.a_time, st.session_state.b_time = st.session_state.b_time, st.session_state.a_time
     st.session_state.a_lat, st.session_state.b_lat = st.session_state.b_lat, st.session_state.a_lat
     st.session_state.a_lon, st.session_state.b_lon = st.session_state.b_lon, st.session_state.a_lon
-    # Clear widget keys so rerun picks up swapped values
-    for prefix in ("a", "b"):
-        for field in ("name", "date", "time", "lat", "lon"):
-            widget_key = f"input_{prefix}_{field}"
-            if widget_key in st.session_state:
-                del st.session_state[widget_key]
 
 
 # ── Gist-based profile storage ──────────────────────────────────
@@ -478,13 +483,14 @@ def load_profile(profile_name: str) -> bool:
     st.session_state.b_time = time.fromisoformat(profile_data["b"]["time"])
     st.session_state.b_lat = profile_data["b"]["lat"]
     st.session_state.b_lon = profile_data["b"]["lon"]
-    # Sync widget keys so rerun picks up new values
+    # Write directly to widget keys so they pick up new values on rerun
     for prefix in ("a", "b"):
-        for field in ("name", "date", "time", "lat", "lon"):
-            widget_key = f"input_{prefix}_{field}"
-            state_key = f"{prefix}_{field}"
-            if widget_key in st.session_state:
-                del st.session_state[widget_key]
+        pdata = profile_data[prefix]
+        st.session_state[f"input_{prefix}_name"] = pdata["name"]
+        st.session_state[f"input_{prefix}_date"] = date.fromisoformat(pdata["date"])
+        st.session_state[f"input_{prefix}_time"] = time.fromisoformat(pdata["time"])
+        st.session_state[f"input_{prefix}_lat"] = pdata["lat"]
+        st.session_state[f"input_{prefix}_lon"] = pdata["lon"]
     return True
 
 
