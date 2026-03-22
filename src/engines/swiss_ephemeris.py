@@ -5,6 +5,11 @@ from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
 import swisseph as swe
+from pathlib import Path
+
+# Set ephemeris path for asteroid support
+_EPHE_DIR = str(Path(__file__).resolve().parent.parent.parent / "ephe")
+swe.set_ephe_path(_EPHE_DIR)
 
 PLANETS = {
     "Sun": swe.SUN,
@@ -21,6 +26,11 @@ PLANETS = {
     "Mean_North_Lunar_Node": swe.MEAN_NODE,
     "Chiron": swe.CHIRON,
     "Mean_Lilith": swe.MEAN_APOG,
+    # Asteroids
+    "Ceres": swe.CERES,
+    "Pallas": swe.PALLAS,
+    "Juno": swe.JUNO,
+    "Vesta": swe.VESTA,
 }
 
 SIGNS = ["Ari", "Tau", "Gem", "Can", "Leo", "Vir", "Lib", "Sco", "Sag", "Cap", "Aqu", "Pis"]
