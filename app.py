@@ -13,6 +13,7 @@ import streamlit.components.v1 as components
 from kerykeion import AstrologicalSubject, KerykeionChartSVG, NatalAspects
 
 from src.chinese_systems import bazi_payload, ziwei_payload
+from src.ixingpan_parser import fetch_and_parse
 from src.engines.swiss_ephemeris import compute_swiss_chart
 
 OUT_DIR = Path(__file__).parent / "output"
@@ -583,6 +584,29 @@ def main() -> None:
                             st.rerun()
                 else:
                     st.info("暂无已保存的档案")
+
+        with st.expander("🔗 爱星盘导入"):
+            ixp_url = st.text_input("粘贴爱星盘URL", placeholder="https://xp.ixingpan.com/xp.php?type=...")
+            if st.button("📥 抓取JSON", use_container_width=True):
+                if ixp_url and "ixingpan.com" in ixp_url:
+                    with st.spinner("正在抓取..."):
+                        try:
+                            chart_data = fetch_and_parse(ixp_url)
+                            st.success(f"抓取成功：{len(chart_data.get('planets', []))}颗星体，{len(chart_data.get('aspects', []))}个相位")
+                            chart_json = json.dumps(chart_data, ensure_ascii=False, indent=2)
+                            st.download_button(
+                                "⬇️ 下载JSON",
+                                data=chart_json,
+                                file_name=f"ixingpan_{chart_data.get('chart_type', 'chart')}.json",
+                                mime="application/json",
+                                use_container_width=True,
+                            )
+                            with st.expander("预览JSON", expanded=False):
+                                st.json(chart_data)
+                        except Exception as e:
+                            st.error(f"抓取失败：{e}")
+                else:
+                    st.warning("请输入有效的爱星盘URL")
 
         st.markdown("---")
         run = st.button("生成", type="primary", use_container_width=True)
