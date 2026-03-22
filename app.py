@@ -534,13 +534,9 @@ def main() -> None:
 
         col1, col2 = st.columns(2)
         with col1:
-            swap_clicked = st.button("↔ 交换A/B", use_container_width=True)
+            st.button("↔ 交换A/B", use_container_width=True, on_click=swap_ab)
         with col2:
             pass
-
-        if swap_clicked:
-            swap_ab()
-            st.rerun()
 
         st.markdown("---")
         st.markdown("**命主 B**")
@@ -569,7 +565,6 @@ def main() -> None:
                     selected_profile = st.selectbox("选择档案", profiles, key="load_profile_select")
                     if st.button("📂 加载档案", use_container_width=True):
                         if load_profile(selected_profile):
-                            st.success(f"档案 '{selected_profile}' 已加载")
                             st.rerun()
                 else:
                     st.info("暂无已保存的档案")
