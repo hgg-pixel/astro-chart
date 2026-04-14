@@ -602,7 +602,8 @@ def main() -> None:
                                 mime="application/json",
                                 use_container_width=True,
                             )
-                            with st.expander("预览JSON", expanded=False):
+                            st.code(chart_json, language="json")
+                            with st.expander("预览JSON（结构化）", expanded=False):
                                 st.json(chart_data)
                         except Exception as e:
                             st.error(f"抓取失败：{e}")
